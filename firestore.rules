@@ -1,0 +1,136 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isTpo() {
+      return isSignedIn() && userRole() == 'tpo';
+    }
+
+    function isStudent() {
+      return isSignedIn() && userRole() == 'student';
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // users: each user can read their own record; only server (admin SDK) writes it.
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isTpo();
+      allow write: if false;
+    }
+
+    // students: student can read/update own non-academic fields; TPO has full access.
+    // Academic fields (cgpa, backlogs, department, batch) are only ever written
+    // by the server-side import pipeline, never directly by students.
+    match /students/{uid} {
+      allow read: if isOwner(uid) || isTpo();
+      allow create: if false; // created by server during registration
+      allow update: if isTpo() ||
+        (isOwner(uid) &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['phone', 'photoUrl', 'skills', 'projects', 'internships',
+                      'certifications', 'resumeUrl', 'linkedin', 'github',
+                      'portfolio', 'preferredRole', 'preferredIndustry',
+                      'preferredLocation', 'updatedAt']));
+      allow delete: if isTpo();
+    }
+
+    match /tpoProfiles/{uid} {
+      allow read: if isOwner(uid) || isTpo();
+      allow write: if isTpo();
+    }
+
+    // Companies, jobs, drives, exams, alumni, mentors: TPO-managed, student-readable.
+    match /companies/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    match /jobs/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    match /placementDrives/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    match /placementExams/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    match /alumni/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    match /mentors/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    match /placementUpdates/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    match /skills/{id} {
+      allow read: if isSignedIn();
+      allow write: if isTpo();
+    }
+
+    // Applications: students may only create their own, and only ever transition
+    // status forward through the server-validated API — direct client writes to
+    // status are blocked entirely. TPO manages status.
+    match /applications/{id} {
+      allow read: if isTpo() || (isStudent() && resource.data.studentUid == request.auth.uid);
+      allow create: if false; // created via server API after eligibility check
+      allow update: if isTpo();
+      allow delete: if false;
+    }
+
+    match /interviews/{id} {
+      allow read: if isTpo() || (isStudent() && resource.data.studentUid == request.auth.uid);
+      allow write: if isTpo();
+    }
+
+    match /mentorshipRequests/{id} {
+      allow read: if isTpo() || (isStudent() && resource.data.studentUid == request.auth.uid);
+      allow create: if isStudent() && request.resource.data.studentUid == request.auth.uid;
+      allow update: if isTpo();
+      allow delete: if false;
+    }
+
+    match /notifications/{id} {
+      allow read: if isSignedIn() && resource.data.userUid == request.auth.uid;
+      allow write: if false; // server-generated only
+    }
+
+    match /imports/{id} {
+      allow read: if isTpo();
+      allow write: if isTpo();
+    }
+
+    match /reports/{id} {
+      allow read: if isTpo();
+      allow write: if isTpo();
+    }
+
+    match /studentAcademicData/{id} {
+      allow read: if isTpo();
+      allow write: if isTpo();
+    }
+  }
+}

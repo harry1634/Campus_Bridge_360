@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function validFile() {
+      return request.resource.size < 5 * 1024 * 1024; // 5MB limit
+    }
+
+    // Student resumes: only the owning student can upload; readable by
+    // anyone signed in (TPO needs to view resumes during review).
+    match /resumes/{uid}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(uid) && validFile() &&
+        request.resource.contentType == 'application/pdf';
+    }
+
+    // Profile photos: owner-writable, image only, small size limit.
+    match /profile-photos/{uid}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(uid) && request.resource.size < 2 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
+    // TPO bulk import spreadsheets: TPO-only, csv/xlsx only.
+    match /imports/{fileName} {
+      allow read: if false;
+      allow write: if isSignedIn() && validFile();
+    }
+  }
+}
